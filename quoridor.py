@@ -6,30 +6,24 @@ import curses
 import curses.textpad
 
 class Compass(enum.Enum):
-    NORTH = 'N'
-    WEST = 'W'
-    SOUTH = 'S'
-    EAST = 'E'
+    N = (0, 1)
+    W = (-1, 0)
+    S = (0, -1)
+    E = (1, 0)
 
     def oppo(self):
-        if self is Compass.NORTH:
-            return Compass.SOUTH
-        if self is Compass.WEST:
-            return Compass.EAST
-        if self is Compass.SOUTH:
-            return Compass.NORTH
-        if self is Compass.EAST:
-            return Compass.WEST
+        val = self.value
+        return Compass((-val[0], -val[1]))
 
     def cells(self, w, h):
-        if self is Compass.NORTH:
-            return [(col, h-1) for col in range(w)]
-        if self is Compass.WEST:
-            return [(0, row) for row in range(h)]
-        if self is Compass.SOUTH:
-            return [(col, 0) for col in range(w)]
-        if self is Compass.EAST:
-            return [(w-1, row) for row in range(h)]
+        if self is Compass.N:
+            return ((col, h-1) for col in range(w))
+        if self is Compass.W:
+            return ((0, row) for row in range(h))
+        if self is Compass.S:
+            return ((col, 0) for col in range(w))
+        if self is Compass.E:
+            return ((w-1, row) for row in range(h))
 
 class Orient(enum.Enum):
     VERT = 1
@@ -57,13 +51,13 @@ class Quoridor:
         :return: default position of a pawn
         :rtype: tuple(int, int)
         """
-        if side is Compass.NORTH:
+        if side is Compass.N:
             return (int((self.width-1)/2), self.height-1)
-        if side is Compass.SOUTH:
+        if side is Compass.S:
             return (int(self.width/2), 0)
-        if side is Compass.WEST:
+        if side is Compass.W:
             return (0, int((self.height-1)/2))
-        if side is Compass.EAST:
+        if side is Compass.E:
             return (self.width-1,int(self.height/2))
 
     def __init__(self, height=HEIGHT, width=WIDTH, pawns=None,
@@ -73,8 +67,8 @@ class Quoridor:
         if def_pos is None:
             def_pos = self.default_pos
         if pawns is None:
-            pawns = [Pawn(Compass.SOUTH, def_pos(Compass.SOUTH)),
-                    Pawn(Compass.NORTH, def_pos(Compass.NORTH))]
+            pawns = [Pawn(Compass.S, def_pos(Compass.S)),
+                    Pawn(Compass.N, def_pos(Compass.N))]
         self.pawns = pawns
         self._curr_pawn = 0
         self.cells = [[None for _ in range(height)] for _ in range(width)]
@@ -88,25 +82,22 @@ class Quoridor:
         if self.finished:
             raise ValueError('Game already finished')
         cmd = cmd.upper()
-        m = re.match(r'([NSWE]+)$|([A-Z]+[1-9][0-9]*[\-|])$', cmd)
-        if m is None:
-            raise ValueError('Illegal command')
-        if m.group(1) is not None:
+        m = re.match(r'[NSWE]+$', cmd)
+        if m is not None:
             pawn = self.curr_pawn
-            pos = pawn.pos
+            dst = pawn.pos
             for c in cmd:
-                if c == 'N':
-                    pos = pos[0], pos[1]+1
-                elif c == 'S':
-                    pos = pos[0], pos[1]-1
-                elif c == 'W':
-                    pos = pos[0]-1, pos[1]
-                else:
-                    pos = pos[0]+1, pos[1]
-            dst = pos
+                delta = Compass[c].value
+                dst = dst[0] + delta[0], dst[1] + delta[1]
             self.move(dst)
         else:
             coord = Quoridor.parse_text_coord(cmd[:-1])
+            if cmd[-1] == '|':
+                orient = Orient.VERT
+            elif cmd[-1] == '-':
+                orient = Orient.HORZ
+            else:
+                raise ValueError('Invalid orientation: %s' % cmd[-1])
             orient = Orient.VERT if cmd[-1] == '|' else Orient.HORZ
             self.put_fence(coord, orient)
 
@@ -120,12 +111,10 @@ class Quoridor:
 
     @staticmethod
     def parse_text_coord(coord):
-        if len(coord) != 2:
-            raise ValueError("Text coordinates must be length of 2")
         m = re.match(r'([A-Z]+)([1-9][0-9]*)', coord)
         if m is None:
-            raise ValueError("Invalid text coordinate format")
-        col = reduce(lambda x, y: x*26+y, [ord(c)-64 for c in m.group(1)])-1
+            raise ValueError("Invalid text coordinate: %s" % coord)
+        col = reduce(lambda x, y: x*26+y, (ord(c)-64 for c in m.group(1)))-1
         row = int(m.group(2))-1
         return (col, row)
 
@@ -250,10 +239,10 @@ class Quoridor:
         self.cells[pawn.pos[0]][pawn.pos[1]] = None
         pawn.pos = dst
         self.cells[dst[0]][dst[1]] = pawn
-        if (pawn.side is Compass.NORTH and dst[1] == 0) or \
-                (pawn.side is Compass.SOUTH and dst[1] == self.height-1) or \
-                (pawn.side is Compass.WEST and dst[0] == 0) or \
-                (pawn.side is Compass.EAST and dst[0] == self.width-1):
+        if (pawn.side is Compass.N and dst[1] == 0) or \
+                (pawn.side is Compass.S and dst[1] == self.height-1) or \
+                (pawn.side is Compass.W and dst[0] == 0) or \
+                (pawn.side is Compass.E and dst[0] == self.width-1):
                     pawn.win = True
                     self.finished = True
                     return
@@ -287,13 +276,13 @@ class Quoridor:
                         s[(h-2-row)*2+4][col*4+4+i] = '-'
         for pawn in self.pawns:
             c, r = pawn.pos
-            s[(h-1-r)*2+3][c*4+5] = pawn.side.value
+            s[(h-1-r)*2+3][c*4+5] = pawn.side.name
         for pos in self.move_region():
             c, r = pos
             s[(h-1-r)*2+3][c*4+5] = 'o'
-        s = '\n'.join(''.join(row) for row in s) + '\n'
+        s = '\n'.join((''.join(row) for row in s)) + '\n'
         for pawn in self.pawns:
-            s += '\n    %s | fences=%d' % (pawn.side.value, pawn.num_fences)
+            s += '\n    %s | fences=%d' % (pawn.side.name, pawn.num_fences)
             if pawn is self.curr_pawn:
                 s += ' *'
         return s
@@ -324,9 +313,10 @@ def main(stdscr):
             boardwin.addstr(0, 0, str(q))
         except KeyboardInterrupt:
             statuswin.clear()
-            statuswin.addstr('Game aborted')
-            statuswin.refresh()
-            curses.delay_output(1000)
+            statuswin.addstr('Game aborted\n')
+            statuswin.addstr('type any key to exit...')
+            statuswin.getch()
+            statuswin.getch()
             return
         except Exception as e:
             statuswin.clear()
@@ -336,8 +326,8 @@ def main(stdscr):
             statuswin.refresh()
             textwin.refresh()
     statuswin.clear()
-    statuswin.addstr('Game finished! Winner is player %s\n' % q.curr_pawn.side.value)
-    statuswin.addstr('type anykey to exit...')
+    statuswin.addstr('Game finished! Winner is player %s\n' % q.curr_pawn.side.name)
+    statuswin.addstr('type any key to exit...')
     statuswin.getch()    
 
 if __name__ == '__main__':
